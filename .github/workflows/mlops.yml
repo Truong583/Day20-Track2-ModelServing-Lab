@@ -54,6 +54,15 @@ jobs:
         run: |
           python -m dvc add models/model.pkl
           python -m dvc push -r dagshub
+      - name: Save metrics as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlops-performance-report
+          path: |
+            outputs/metrics.json
+            outputs/report.txt
+      - name: Print Performance Report
+        run: cat outputs/report.txt
 
   eval:
     name: Eval
