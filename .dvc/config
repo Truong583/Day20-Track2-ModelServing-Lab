@@ -1,0 +1,10 @@
+[core]
+    no_scm = True
+    remote = dagshub
+['remote "local_remote"']
+    url = d:/Lab21/Day21-Track2-CI-CD-for-AI-Systems/dvc_remote
+['remote "dagshub"']
+    url = s3://dvc
+    endpointurl = https://dagshub.com/tphamdinh583/mlops-lab-vinuni.s3
+    access_key_id = 7468eee3cba7b9d6b77f177ad890b08cd132cc8a
+    secret_access_key = 7468eee3cba7b9d6b77f177ad890b08cd132cc8a

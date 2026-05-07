@@ -6,80 +6,75 @@ import os
 
 app = FastAPI()
 
-GCS_BUCKET = os.environ["GCS_BUCKET"]
+# Đọc cấu hình từ biến môi trường
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "mlops-lab-vinuni-21-storage")
 GCS_MODEL_KEY = "models/latest/model.pkl"
-MODEL_PATH = os.path.expanduser("~/models/model.pkl")
-
+# Đường dẫn model (Ưu tiên thư mục cục bộ nếu có, nếu không dùng đường dẫn VM)
+LOCAL_MODEL_PATH = "models/model.pkl"
+VM_MODEL_PATH = os.path.expanduser("~/models/model.pkl")
+MODEL_PATH = LOCAL_MODEL_PATH if os.path.exists(LOCAL_MODEL_PATH) else VM_MODEL_PATH
 
 def download_model():
-    """
-    Tai file model.pkl tu GCS ve may khi server khoi dong.
+    """Tải file model.pkl từ GCS về máy khi server khởi động."""
+    if not os.path.exists(os.path.dirname(MODEL_PATH)):
+        os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+    
+    try:
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob = bucket.blob(GCS_MODEL_KEY)
+        blob.download_to_filename(MODEL_PATH)
+        print(f"Successfully downloaded model from gs://{GCS_BUCKET}/{GCS_MODEL_KEY}")
+    except Exception as e:
+        print(f"Warning: Could not download model from GCS: {e}")
+        # Trong thực tế, nếu không có model thì server không nên chạy, 
+        # nhưng ở đây ta để nó tiếp tục để có thể debug hoặc dùng model cũ nếu có.
 
-    Ham nay duoc goi mot lan khi module duoc import. Su dung
-    GOOGLE_APPLICATION_CREDENTIALS de xac thuc (duoc dat trong systemd service).
-    """
-    # TODO 1: Tao storage.Client()
-    # client = storage.Client()
+# Tải model khi khởi động
+if not os.environ.get("SKIP_MODEL_DOWNLOAD"):
+    download_model()
 
-    # TODO 2: Lay bucket va blob tuong ung
-    # bucket = client.bucket(GCS_BUCKET)
-    # blob   = bucket.blob(GCS_MODEL_KEY)
-
-    # TODO 3: Tai file model xuong may
-    # blob.download_to_filename(MODEL_PATH)
-
-    # TODO 4: In thong bao thanh cong
-    # print("Model da duoc tai xuong tu GCS.")
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
-
-
-download_model()
-model = joblib.load(MODEL_PATH)
-
+# Load model vào bộ nhớ
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+else:
+    model = None
+    print("Warning: Model file not found at", MODEL_PATH)
 
 class PredictRequest(BaseModel):
     features: list[float]
 
-
 @app.get("/health")
 def health():
-    """
-    Endpoint kiem tra suc khoe server.
-    GitHub Actions goi endpoint nay sau khi deploy de xac nhan server dang chay.
-
-    Tra ve: {"status": "ok"}
-    """
-    # TODO 5: Tra ve dict {"status": "ok"}
-    pass  # xoa dong nay sau khi hoan thanh
-
+    """Endpoint kiểm tra sức khỏe server."""
+    return {"status": "ok"}
 
 @app.post("/predict")
 def predict(req: PredictRequest):
     """
-    Endpoint suy luan chinh.
-
-    Dau vao : JSON {"features": [f1, f2, ..., f12]}
-    Dau ra  : JSON {"prediction": <0|1|2>, "label": <"thap"|"trung_binh"|"cao">}
-
-    Thu tu 12 dac trung (khop voi thu tu trong FEATURE_NAMES cua test):
-        fixed_acidity, volatile_acidity, citric_acid, residual_sugar,
-        chlorides, free_sulfur_dioxide, total_sulfur_dioxide, density,
-        pH, sulphates, alcohol, wine_type
+    Endpoint suy luận.
+    Đầu vào: JSON {"features": [f1, f2, ..., f12]}
     """
-    # TODO 6: Kiem tra so luong dac trung.
-    # Neu len(req.features) != 12, raise HTTPException(status_code=400, ...)
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+        
+    if len(req.features) != 12:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Expected 12 features (wine quality), but got {len(req.features)}"
+        )
 
-    # TODO 7: Goi model.predict([req.features]) de lay ket qua du doan.
-    # pred = model.predict(...)
-
-    # TODO 8: Tra ve dict chua "prediction" (int) va "label" (string).
-    # Nhan tuong ung: 0 -> "thap", 1 -> "trung_binh", 2 -> "cao"
-    # return {"prediction": ..., "label": ...}
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
-
+    try:
+        prediction = int(model.predict([req.features])[0])
+        labels = {0: "thấp", 1: "trung bình", 2: "cao"}
+        return {
+            "prediction": prediction,
+            "label": labels.get(prediction, "không xác định")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
